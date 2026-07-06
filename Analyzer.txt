@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Codeforces Analyzer</title>
+<link rel="icon" type="image/svg+xml" href="data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><circle cx='16' cy='16' r='16' fill='%233182ce'/><text x='16' y='16' fill='%23ffffff' font-size='18' font-family='sans-serif' font-weight='bold' text-anchor='middle' dominant-baseline='central'>C</text></svg>">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<style>
+:root { --bg-color: #f4f6f9; --card-bg: #ffffff; --text-color: #333333; --primary-color: #3182ce; --border-color: #e2e8f0; }
+body { font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; background-color: var(--bg-color); color: var(--text-color); margin: 0; padding: 20px 20px 80px 20px; }
+.container { max-width: 1000px; margin: 0 auto; }
+h1 { text-align: center; color: #2d3748; }
+.search-box { display: flex; gap: 10px; margin-bottom: 30px; }
+input { flex: 1; padding: 12px; border: 1px solid var(--border-color); border-radius: 6px; font-size: 16px; }
+button { padding: 12px 24px; background-color: var(--primary-color); color: white; border: none; border-radius: 6px; font-size: 16px; cursor: pointer; transition: background 0.2s; }
+button:hover { background-color: #2b6cb0; }
+.dashboard { display: none; }
+.grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; margin-bottom: 20px; }
+@media (max-width: 768px) { .grid-2 { grid-template-columns: 1fr; } }
+.card { background: var(--card-bg); border-radius: 8px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.05); margin-bottom: 20px; }
+.card h3 { margin-top: 0; color: #2d3748; border-bottom: 2px solid var(--bg-color); padding-bottom: 10px; }
+.profile-header { display: flex; align-items: center; gap: 20px; }
+.avatar-container { width: 80px; height: 80px; border-radius: 50%; border: 3px solid var(--border-color); overflow: hidden; background: #e2e8f0; display: flex; align-items: center; justify-content: center; }
+.avatar-container img { width: 100%; height: 100%; object-fit: cover; }
+.stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 15px; margin-top: 20px; }
+.stat-item { background: var(--bg-color); padding: 15px; border-radius: 6px; text-align: center; }
+.stat-item span { display: block; font-size: 12px; color: #718096; text-transform: uppercase; }
+.stat-item strong { font-size: 18px; color: #2d3748; }
+.tag-scroll-container { max-height: 400px; overflow-y: auto; padding-right: 10px; }
+.tag-list { list-style: none; padding: 0; margin: 0; }
+.tag-item { display: flex; justify-content: space-between; padding: 10px 0; border-bottom: 1px solid var(--border-color); }
+.tag-item span { font-weight: 500; color: #4a5568; }
+.tag-item strong { color: var(--primary-color); }
+.error { color: #e53e3e; text-align: center; font-weight: bold; display: none; margin-bottom: 20px; }
+.chart-container { position: relative; height: 260px; width: 100%; }
+.footer { position: fixed; bottom: 0; left: 0; right: 0; display: flex; justify-content: space-between; padding: 15px 40px; background: var(--bg-color); border-top: 1px solid var(--border-color); color: #718096; font-size: 14px; z-index: 1000; box-sizing: border-box; }
+</style>
+</head>
+<body>
+<div class="container">
+    <h1>Codeforces Analyzer</h1>
+    <div class="search-box">
+        <input type="text" id="handleInput" placeholder="Enter Codeforces Handle (e.g., Tourist)">
+        <button onclick="fetchProfileData()">Analyze</button>
+    </div>
+    <div id="errorMessage" class="error">User not found.</div>
+    <div id="dashboard" class="dashboard">
+        <div class="card">
+            <div class="profile-header">
+                <div class="avatar-container">
+                    <img id="userAvatar" src="" alt="">
+                </div>
+                <div>
+                    <h2 id="userHandle" style="margin: 0;">Handle</h2>
+                    <p id="userRank" style="margin: 5px 0 0 0; font-weight: bold; color: #718096;"></p>
+                </div>
+            </div>
+            <div class="stats-grid">
+                <div class="stat-item"><span>Current Rating</span><strong id="currentRating">-</strong></div>
+                <div class="stat-item"><span>Highest Rating</span><strong id="highestRating">-</strong></div>
+                <div class="stat-item"><span>Total Solved</span><strong id="totalSolved">-</strong></div>
+            </div>
+        </div>
+        <div class="grid-2">
+            <div class="card">
+                <h3>Interactive Rating History</h3>
+                <div class="chart-container">
+                    <canvas id="ratingChart"></canvas>
+                </div>
+            </div>
+            <div class="card">
+                <h3>Difficulty Heatmap</h3>
+                <div class="chart-container">
+                    <canvas id="heatmapChart"></canvas>
+                </div>
+            </div>
+        </div>
+        <div class="card">
+            <h3>Problems Solved by Topic</h3>
+            <div class="tag-scroll-container">
+                <ul id="tagList" class="tag-list"></ul>
+            </div>
+        </div>
+    </div>
+    <div class="footer">
+        <span>All rights reserved ©</span>
+        <span>Made by Shayan</span>
+    </div>
+</div>
+<script>
+    let ratingChartInstance = null;
+    let heatmapChartInstance = null;
+    const defaultAvatar = `data:image/svg+xml;utf8,<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="%23cbd5e0"><path d="M12 12c2.21 0 4-1.79 4-4s-1.79-4-4-4-4 1.79-4 4 1.79 4 4 4zm0 2c-2.67 0-8 1.34-8 4v2h16v-2c0-2.66-5-4-8-4z"/></svg>`;
+    async function fetchProfileData() {
+        const handle = document.getElementById('handleInput').value.trim();
+        const errorDiv = document.getElementById('errorMessage');
+        const dashboard = document.getElementById('dashboard');
+        if (!handle) return;
+        errorDiv.style.display = 'none';
+        dashboard.style.display = 'none';
+        try {
+            const [infoRes, statusRes, ratingRes] = await Promise.all([
+                fetch(`https://codeforces.com/api/user.info?handles=${handle}`),
+                fetch(`https://codeforces.com/api/user.status?handle=${handle}`),
+                fetch(`https://codeforces.com/api/user.rating?handle=${handle}`)
+            ]);
+            const infoData = await infoRes.json();
+            const statusData = await statusRes.json();
+            const ratingData = await ratingRes.json();
+            if (infoData.status !== "OK" || statusData.status !== "OK" || ratingData.status !== "OK") {
+                throw new Error("API error");
+            }
+            const user = infoData.result[0];
+            updateProfileCard(user);
+            processSubmissions(statusData.result);
+            processRatingHistory(ratingData.result);
+            dashboard.style.display = 'block';
+        } catch (error) {
+            console.error(error);
+            errorDiv.style.display = 'block';
+        }
+    }
+    function updateProfileCard(user) {
+        const avatarImg = document.getElementById('userAvatar');
+        let rawPhoto = user.titlePhoto || user.avatar || '';
+        if (rawPhoto.startsWith('//')) {
+            rawPhoto = 'https:' + rawPhoto;
+        }
+        avatarImg.src = rawPhoto || defaultAvatar;
+        avatarImg.onerror = function() {
+            this.src = defaultAvatar;
+            this.onerror = null; 
+        };
+        document.getElementById('userHandle').innerText = user.handle;
+        document.getElementById('userRank').innerText = `${user.rank || 'Unrated'} (Max: ${user.maxRank || 'Unrated'})`;
+        document.getElementById('currentRating').innerText = user.rating || 'Unrated';
+        document.getElementById('highestRating').innerText = user.maxRating || 'Unrated';
+    }
+    function processSubmissions(submissions) {
+        const solvedProblems = new Set();
+        const tagCounts = {};
+        const ratingCounts = {};
+        submissions.forEach(sub => {
+            if (sub.verdict === "OK") {
+                const problemId = `${sub.problem.contestId}-${sub.problem.index}`;
+                if (!solvedProblems.has(problemId)) {
+                    solvedProblems.add(problemId);
+                    if (sub.problem.tags) {
+                        sub.problem.tags.forEach(tag => {
+                            tagCounts[tag] = (tagCounts[tag] || 0) + 1;
+                        });
+                    }
+                    if (sub.problem.rating) {
+                        const r = sub.problem.rating;
+                        ratingCounts[r] = (ratingCounts[r] || 0) + 1;
+                    }
+                }
+            }
+        });
+        document.getElementById('totalSolved').innerText = solvedProblems.size;
+        renderHeatmap(ratingCounts);
+        renderFullTagsList(tagCounts);
+    }
+    function renderFullTagsList(tagCounts) {
+        const list = document.getElementById('tagList');
+        list.innerHTML = '';
+        const sortedTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+        if (sortedTags.length === 0) {
+            list.innerHTML = '<li class="tag-item"><span>No problem tag data found.</span></li>';
+            return;
+        }
+        sortedTags.forEach(([tag, count]) => {
+            const li = document.createElement('li');
+            li.className = 'tag-item';
+            li.innerHTML = `<span>${tag}</span><strong>${count} problems</strong>`;
+            list.appendChild(li);
+        });
+    }
+    function renderHeatmap(ratingCounts) {
+        const ctx = document.getElementById('heatmapChart').getContext('2d');
+        if (heatmapChartInstance) heatmapChartInstance.destroy();
+        const sortedRatings = Object.keys(ratingCounts).sort((a, b) => a - b);
+        const dataValues = sortedRatings.map(r => ratingCounts[r]);
+        heatmapChartInstance = new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: sortedRatings,
+                datasets: [{
+                    label: 'Problems Solved',
+                    data: dataValues,
+                    backgroundColor: '#4299e1',
+                    borderRadius: 4
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: {
+                    x: { title: { display: true, text: 'Difficulty Rating' } },
+                    y: { title: { display: true, text: 'Count' }, beginAtZero: true }
+                }
+            }
+        });
+    }
+    function processRatingHistory(ratingData) {
+        const ctx = document.getElementById('ratingChart').getContext('2d');
+        if (ratingChartInstance) ratingChartInstance.destroy();
+        const labels = ratingData.map((_, index) => `Round ${index + 1}`);
+        const dataValues = ratingData.map(contest => contest.newRating);
+        ratingChartInstance = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Rating',
+                    data: dataValues,
+                    borderColor: '#3182ce',
+                    backgroundColor: 'rgba(49, 130, 206, 0.1)',
+                    borderWidth: 2,
+                    pointRadius: 2,
+                    fill: true,
+                    tension: 0.1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            title: (context) => ratingData[context[0].dataIndex].contestName
+                        }
+                    }
+                },
+                scales: {
+                    y: { title: { display: true, text: 'Rating' } }
+                }
+            }
+        });
+    }
+</script>
+</body>
+</html>
